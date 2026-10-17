@@ -93,4 +93,76 @@ def test_get_metrics_reports_counts(db):
     )
     metrics = db.get_metrics()
     assert metrics["works_count"] == 1
+    assert metrics["authors_count"] == 1
+
+
+def test_upsert_work_also_upserts_author_with_real_id(db):
+    db.upsert_work(
+        {
+            "work_id": "OL1W",
+            "title": "The Hobbit",
+            "author_name": "J.R.R. Tolkien",
+            "author_id": "OL123A",
+            "first_publish_year": 1937,
+            "isbn": None,
+            "subject": "Fantasy",
+            "language": "eng",
+        }
+    )
+    with db._connect() as conn:
+        row = conn.execute("SELECT * FROM authors").fetchone()
+    assert row["author_id"] == "OL123A"
+    assert row["name"] == "J.R.R. Tolkien"
+
+
+def test_upsert_work_without_author_id_falls_back_to_slug(db):
+    db.upsert_work(
+        {
+            "work_id": "OL2W",
+            "title": "Dirty Catalog Entry",
+            "author_name": "Jane Q. Author",
+            "first_publish_year": 2001,
+            "isbn": None,
+            "subject": "X",
+            "language": "eng",
+        }
+    )
+    with db._connect() as conn:
+        row = conn.execute("SELECT * FROM authors").fetchone()
+    assert row["author_id"] == "jane-q-author"
+    assert row["name"] == "Jane Q. Author"
+
+
+def test_upsert_works_batch_dedupes_same_author(db):
+    works = [
+        {
+            "work_id": f"OL{i}W",
+            "title": f"Book {i}",
+            "author_name": "Shared Author",
+            "first_publish_year": 2000,
+            "isbn": None,
+            "subject": "X",
+            "language": "eng",
+        }
+        for i in range(3)
+    ]
+    db.upsert_works_batch(works)
+    metrics = db.get_metrics()
+    assert metrics["works_count"] == 3
+    assert metrics["authors_count"] == 1
+
+
+def test_upsert_work_without_author_name_skips_author_row(db):
+    db.upsert_work(
+        {
+            "work_id": "OL3W",
+            "title": "No Author Book",
+            "author_name": None,
+            "first_publish_year": 2000,
+            "isbn": None,
+            "subject": "X",
+            "language": "eng",
+        }
+    )
+    metrics = db.get_metrics()
     assert metrics["authors_count"] == 0

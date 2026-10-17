@@ -1,6 +1,7 @@
 """SQLite database manager: schema, CRUD, upserts, and TTL-based API cache."""
 
 import json
+import re
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -11,6 +12,14 @@ from src.exceptions import DatabaseError
 from src.logger import get_logger
 
 logger = get_logger(__name__)
+
+_AUTHOR_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify_author_name(name: str) -> str:
+    """Deterministic fallback author_id for sources with no real Open Library author key."""
+    return _AUTHOR_SLUG_RE.sub("-", name.strip().lower()).strip("-")
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS works (
@@ -78,72 +87,75 @@ class DatabaseManager:
     def upsert_work(self, work: dict) -> None:
         now = time.time()
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO works (work_id, title, author_name, first_publish_year,
-                                    isbn, subject, language, raw_json, created_at, updated_at)
-                VALUES (:work_id, :title, :author_name, :first_publish_year,
-                        :isbn, :subject, :language, :raw_json, :created_at, :updated_at)
-                ON CONFLICT(work_id) DO UPDATE SET
-                    title=excluded.title,
-                    author_name=excluded.author_name,
-                    first_publish_year=excluded.first_publish_year,
-                    isbn=excluded.isbn,
-                    subject=excluded.subject,
-                    language=excluded.language,
-                    raw_json=excluded.raw_json,
-                    updated_at=excluded.updated_at
-                """,
-                {
-                    "work_id": work["work_id"],
-                    "title": work.get("title"),
-                    "author_name": work.get("author_name"),
-                    "first_publish_year": work.get("first_publish_year"),
-                    "isbn": work.get("isbn"),
-                    "subject": work.get("subject"),
-                    "language": work.get("language"),
-                    "raw_json": json.dumps(work.get("raw", {})),
-                    "created_at": now,
-                    "updated_at": now,
-                },
-            )
+            self._upsert_work_row(conn, work, now)
+            self._upsert_author_row(conn, work, now)
 
     def upsert_works_batch(self, works: list[dict]) -> int:
         count = 0
         with self._connect() as conn:
             now = time.time()
             for work in works:
-                conn.execute(
-                    """
-                    INSERT INTO works (work_id, title, author_name, first_publish_year,
-                                        isbn, subject, language, raw_json, created_at, updated_at)
-                    VALUES (:work_id, :title, :author_name, :first_publish_year,
-                            :isbn, :subject, :language, :raw_json, :created_at, :updated_at)
-                    ON CONFLICT(work_id) DO UPDATE SET
-                        title=excluded.title,
-                        author_name=excluded.author_name,
-                        first_publish_year=excluded.first_publish_year,
-                        isbn=excluded.isbn,
-                        subject=excluded.subject,
-                        language=excluded.language,
-                        raw_json=excluded.raw_json,
-                        updated_at=excluded.updated_at
-                    """,
-                    {
-                        "work_id": work["work_id"],
-                        "title": work.get("title"),
-                        "author_name": work.get("author_name"),
-                        "first_publish_year": work.get("first_publish_year"),
-                        "isbn": work.get("isbn"),
-                        "subject": work.get("subject"),
-                        "language": work.get("language"),
-                        "raw_json": json.dumps(work.get("raw", {})),
-                        "created_at": now,
-                        "updated_at": now,
-                    },
-                )
+                self._upsert_work_row(conn, work, now)
+                self._upsert_author_row(conn, work, now)
                 count += 1
         return count
+
+    @staticmethod
+    def _upsert_work_row(conn: sqlite3.Connection, work: dict, now: float) -> None:
+        conn.execute(
+            """
+            INSERT INTO works (work_id, title, author_name, first_publish_year,
+                                isbn, subject, language, raw_json, created_at, updated_at)
+            VALUES (:work_id, :title, :author_name, :first_publish_year,
+                    :isbn, :subject, :language, :raw_json, :created_at, :updated_at)
+            ON CONFLICT(work_id) DO UPDATE SET
+                title=excluded.title,
+                author_name=excluded.author_name,
+                first_publish_year=excluded.first_publish_year,
+                isbn=excluded.isbn,
+                subject=excluded.subject,
+                language=excluded.language,
+                raw_json=excluded.raw_json,
+                updated_at=excluded.updated_at
+            """,
+            {
+                "work_id": work["work_id"],
+                "title": work.get("title"),
+                "author_name": work.get("author_name"),
+                "first_publish_year": work.get("first_publish_year"),
+                "isbn": work.get("isbn"),
+                "subject": work.get("subject"),
+                "language": work.get("language"),
+                "raw_json": json.dumps(work.get("raw", {})),
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+
+    @staticmethod
+    def _upsert_author_row(conn: sqlite3.Connection, work: dict, now: float) -> None:
+        author_name = work.get("author_name")
+        if not author_name:
+            return
+        author_id = work.get("author_id") or _slugify_author_name(author_name)
+        if not author_id:
+            return
+        conn.execute(
+            """
+            INSERT INTO authors (author_id, name, raw_json, created_at, updated_at)
+            VALUES (:author_id, :name, :raw_json, :created_at, :updated_at)
+            ON CONFLICT(author_id) DO UPDATE SET
+                name=excluded.name,
+                updated_at=excluded.updated_at
+            """,
+            {
+                "author_id": author_id,
+                "name": author_name,
+                "raw_json": json.dumps(work.get("author_raw", {})),
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
 
     def search_works(
         self, *, title: str | None = None, author: str | None = None, isbn: str | None = None
