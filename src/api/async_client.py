@@ -1,9 +1,11 @@
 """Asynchronous Open Library REST API client (httpx + asyncio)."""
 
 import asyncio
+import ssl
 import time
 
 import httpx
+import truststore
 
 from src.config import settings
 from src.exceptions import APIError, RateLimitError
@@ -24,6 +26,7 @@ class AsyncLibraryClient:
             base_url=self.base_url,
             timeout=settings.request_timeout_seconds,
             headers={"User-Agent": "library-project-capstone/1.0"},
+            verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
         )
 
     async def aclose(self) -> None:

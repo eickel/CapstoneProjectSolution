@@ -1,26 +1,49 @@
 # Open Library Intelligence & Catalog Automation System
 
-A CLI-driven Python automation tool that interacts with the public [Open Library](https://openlibrary.org) REST API. It provides an asynchronous/synchronous API client, a SQLite local cache, a pandas data-transformation pipeline, a multi-format report generator, and an interactive terminal menu for book research, subject aggregation, author analytics, catalog deduplication, and sync/async performance benchmarking.
+A CLI-driven Python automation tool that interacts with the public [Open Library REST API](https://openlibrary.org) to research books, aggregate subjects, analyze author productivity, deduplicate catalog files, and generate multi-format analytical reports.
+
+Built as the capstone project for **SOFT-753: Automation with Python** (CENFOTEC University).
 
 ## Features
 
-- **Subject ingestion** — fetches works by subject both synchronously and asynchronously, comparing runtime and caching results into SQLite.
-- **Search** — looks up books by author, title, or ISBN (with ISBN-10/13 checksum validation) against the local cache first, falling back to the live API on a miss.
-- **Catalog processing** — streams a dirty CSV/JSON catalog file via a generator, normalizes UTF-8 text, deduplicates records, and upserts them into SQLite.
-- **Reporting** — generates an Excel workbook, a CSV summary, and a JSON export of key catalog metrics using pandas and openpyxl.
-- **System health** — reports database metrics (row counts, size, cache hit ratio) and purges expired cache entries.
-- **Quality checks** — runs `ruff check`, `ruff format --check`, and `pytest` from inside the menu.
+- Asynchronous and synchronous REST API clients (`httpx`) with retry, backoff, and rate-limit handling
+- SQLite local caching database with TTL-based expiry and batch upserts
+- pandas-based data cleaning, deduplication, and aggregation pipeline
+- Multi-format report generator (Excel, CSV, JSON)
+- Interactive, loop-driven terminal menu with input validation
+- Regex-based text cleaning and ISBN-10/13 checksum validation
+- GitHub Actions CI (ruff + pytest)
 
-## Requirements
+## Project Structure
 
-- [uv](https://docs.astral.sh/uv/) (manages the Python interpreter and dependencies)
+```
+library-project/
+├── .github/workflows/ci.yml   # GitHub Actions workflow (ruff + pytest)
+├── data/
+│   ├── sample_catalog.csv     # Dirty test data for file automation
+│   └── outputs/                # Default folder for generated reports
+├── src/
+│   ├── config.py                # Environment & settings loader (pydantic + dotenv)
+│   ├── exceptions.py            # Custom exception hierarchy
+│   ├── logger.py                 # Logging setup (console + rotating file handler)
+│   ├── api/                      # Sync/async Open Library REST API clients
+│   ├── db/                       # SQLite database manager
+│   ├── processing/               # Regex cleaning & pandas analytics
+│   ├── reporting/                # Multi-format report generator
+│   └── cli/                      # Interactive terminal menu controller
+├── tests/                        # pytest unit tests (mocked API, DB, analytics, cleaning)
+├── .env.example
+├── pyproject.toml
+└── main.py
+```
 
 ## Setup
 
 ```bash
 uv sync
-cp .env.example .env
 ```
+
+Optionally copy `.env.example` to `.env` to override default settings (API timeouts, cache TTL, database path).
 
 ## Usage
 
@@ -31,9 +54,6 @@ uv run python main.py
 This launches the interactive menu:
 
 ```
-======================================================================
-OPEN LIBRARY INTELLIGENCE & CATALOG AUTOMATION SYSTEM
-======================================================================
 [1] Ingest Works by Subject
 [2] Search Books by Author/Title/ISBN
 [3] Process & Deduplicate Local Catalog File
@@ -41,35 +61,17 @@ OPEN LIBRARY INTELLIGENCE & CATALOG AUTOMATION SYSTEM
 [5] System Health, Cache Maintenance & Database Administration
 [6] Run Quality Checks & Test Suite Diagnostic
 [0] Exit
-======================================================================
 ```
-
-## Configuration
-
-Runtime settings are loaded from `.env` (see `.env.example`) via `src/config.py`, including API timeout/retry/rate-limit behavior, the SQLite database path, cache TTL, and the reports output directory.
 
 ## Development
 
 ```bash
 uv run ruff check .
-uv run ruff format --check .
+uv run ruff format .
 uv run pytest -q
 ```
 
-## Project structure
+## Notes
 
-```
-src/
-├── config.py          # Environment & settings loader
-├── exceptions.py       # Custom exception hierarchy
-├── logger.py            # Logging setup
-├── api/                  # Sync & async Open Library clients
-├── db/                    # SQLite CRUD & cache management
-├── processing/            # Regex cleaning & pandas analytics
-├── reporting/              # Multi-format report generator
-└── cli/                     # Interactive menu controller
-```
-
-## CI
-
-GitHub Actions (`.github/workflows/ci.yml`) runs `ruff check`, `ruff format --check`, and `pytest` on every push and pull request.
+- API clients use the `truststore` package to validate TLS certificates against the operating system's trust store, which is necessary on networks with TLS-inspecting proxies.
+- Generated reports and the SQLite database are written to `data/outputs/` and are gitignored.
