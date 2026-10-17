@@ -30,10 +30,12 @@ SEARCH_RE = re.compile(r"[^a-zA-Z0-9\s\-:'.]")
 
 def _work_from_subject_entry(entry: dict, subject: str) -> dict:
     authors = entry.get("authors") or [{}]
+    first_author = authors[0] if authors else {}
     return {
         "work_id": entry.get("key", "").replace("/works/", ""),
         "title": entry.get("title", ""),
-        "author_name": authors[0].get("name") if authors else None,
+        "author_name": first_author.get("name"),
+        "author_id": (first_author.get("key") or "").replace("/authors/", "") or None,
         "first_publish_year": entry.get("first_publish_year"),
         "isbn": None,
         "subject": subject,
